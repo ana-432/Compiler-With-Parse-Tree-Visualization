@@ -21,11 +21,11 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
     const svg = svgRef.current;
     svg.innerHTML = '';
     
-    // Define dimensions
-    const NODE_WIDTH = 180;
-    const NODE_HEIGHT = 80;
-    const LEVEL_GAP = 100;
-    const HORIZONTAL_GAP = 60;
+    // Define dimensions - Increased sizes
+    const NODE_WIDTH = 220;  // Increased from 180
+    const NODE_HEIGHT = 100; // Increased from 80
+    const LEVEL_GAP = 120;   // Increased from 100
+    const HORIZONTAL_GAP = 80; // Increased from 60
     
     // Create main group
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -99,20 +99,22 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
       
       // Layout each child
       node.children.forEach((child, i) => {
-        // Add link to this child
+        // Calculate edge connection points
         const sourceX = x;
         const sourceY = y + NODE_HEIGHT;
         const targetX = childX;
         const targetY = y + NODE_HEIGHT + LEVEL_GAP;
         
-        // Calculate control points for the curved path
-        const midY = (sourceY + targetY) / 2;
+        // Calculate control points for smoother curves
+        const midY = sourceY + (targetY - sourceY) * 0.5;
+        const cp1Y = sourceY + (targetY - sourceY) * 0.2;
+        const cp2Y = targetY - (targetY - sourceY) * 0.2;
         
         // Create path data for the curved connection
         const pathData = `
           M ${sourceX} ${sourceY}
-          C ${sourceX} ${midY},
-            ${targetX} ${midY},
+          C ${sourceX} ${cp1Y},
+            ${targetX} ${cp2Y},
             ${targetX} ${targetY}
         `;
         
@@ -122,7 +124,11 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
           path: pathData,
           label: node.type === 'IF' && node.children.length > 1 ? 
             (i === 0 ? 'true' : 'false') : 
-            undefined
+            undefined,
+          midPoint: {
+            x: (sourceX + targetX) / 2,
+            y: midY
+          }
         });
         
         // Layout this child
@@ -180,29 +186,28 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
       
       // Add a label if needed
       if (link.label) {
+        const labelGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        labelGroup.setAttribute('transform', `translate(${link.midPoint.x},${link.midPoint.y})`);
+        
         const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        
-        // Extract midpoint from the path for label positioning
-        const pathLength = linkElement.getTotalLength();
-        const midPoint = linkElement.getPointAtLength(pathLength / 2);
-        
-        labelBg.setAttribute('x', String(midPoint.x - 20));
-        labelBg.setAttribute('y', String(midPoint.y - 10));
+        labelBg.setAttribute('x', '-20');
+        labelBg.setAttribute('y', '-10');
         labelBg.setAttribute('width', '40');
         labelBg.setAttribute('height', '20');
         labelBg.setAttribute('rx', '4');
         labelBg.setAttribute('fill', '#fff');
         labelBg.setAttribute('stroke', '#ddd');
         
-        labelText.setAttribute('x', String(midPoint.x));
-        labelText.setAttribute('y', String(midPoint.y + 5));
+        const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        labelText.setAttribute('x', '0');
+        labelText.setAttribute('y', '4');
         labelText.setAttribute('text-anchor', 'middle');
         labelText.setAttribute('font-size', '12px');
         labelText.textContent = link.label;
         
-        linkGroup.appendChild(labelBg);
-        linkGroup.appendChild(labelText);
+        labelGroup.appendChild(labelBg);
+        labelGroup.appendChild(labelText);
+        linkGroup.appendChild(labelGroup);
       }
     });
     
@@ -256,8 +261,8 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
           nodeShape = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
           nodeShape.setAttribute('width', String(NODE_WIDTH));
           nodeShape.setAttribute('height', String(NODE_HEIGHT));
-          nodeShape.setAttribute('rx', '4');
-          nodeShape.setAttribute('ry', '4');
+          nodeShape.setAttribute('rx', '8');
+          nodeShape.setAttribute('ry', '8');
           fill = '#f3f4f6';
           stroke = '#6b7280';
       }
@@ -279,21 +284,26 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
       div.style.flexDirection = 'column';
       div.style.alignItems = 'center';
       div.style.justifyContent = 'center';
-      div.style.padding = '8px';
+      div.style.padding = '12px';
       div.style.boxSizing = 'border-box';
       div.style.overflow = 'hidden';
+      div.style.textAlign = 'center';
       
       const typeSpan = document.createElement('span');
-      typeSpan.style.fontSize = '14px';
+      typeSpan.style.fontSize = '16px';
       typeSpan.style.fontWeight = 'bold';
+      typeSpan.style.marginBottom = '6px';
       typeSpan.textContent = node.type;
       div.appendChild(typeSpan);
       
       if (node.condition) {
         const conditionSpan = document.createElement('span');
-        conditionSpan.style.fontSize = '12px';
-        conditionSpan.style.marginTop = '4px';
-        conditionSpan.style.textAlign = 'center';
+        conditionSpan.style.fontSize = '14px';
+        conditionSpan.style.lineHeight = '1.2';
+        conditionSpan.style.display = '-webkit-box';
+        conditionSpan.style.webkitLineClamp = '3';
+        conditionSpan.style.webkitBoxOrient = 'vertical';
+        conditionSpan.style.overflow = 'hidden';
         conditionSpan.style.wordBreak = 'break-word';
         conditionSpan.textContent = node.condition;
         div.appendChild(conditionSpan);
@@ -321,7 +331,7 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
           <svg 
             ref={svgRef} 
             className="w-full" 
-            height="600"
+            height="800"
           />
         </div>
       </div>
