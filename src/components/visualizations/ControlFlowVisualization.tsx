@@ -12,7 +12,6 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
   
   useEffect(() => {
     if (!controlFlow || !svgRef.current) return;
-    
     renderControlFlow(controlFlow);
   }, [controlFlow]);
   
@@ -23,10 +22,10 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
     svg.innerHTML = '';
     
     // Define dimensions
-    const NODE_WIDTH = 160;
-    const NODE_HEIGHT = 60;
-    const LEVEL_GAP = 80;
-    const HORIZONTAL_GAP = 40;
+    const NODE_WIDTH = 180;
+    const NODE_HEIGHT = 80;
+    const LEVEL_GAP = 100;
+    const HORIZONTAL_GAP = 60;
     
     // Create main group
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -40,7 +39,7 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
     const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
     marker.setAttribute('id', 'arrowhead');
     marker.setAttribute('viewBox', '0 0 10 10');
-    marker.setAttribute('refX', '8');
+    marker.setAttribute('refX', '9');
     marker.setAttribute('refY', '5');
     marker.setAttribute('markerWidth', '6');
     marker.setAttribute('markerHeight', '6');
@@ -101,13 +100,26 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
       // Layout each child
       node.children.forEach((child, i) => {
         // Add link to this child
+        const sourceX = x;
+        const sourceY = y + NODE_HEIGHT;
+        const targetX = childX;
+        const targetY = y + NODE_HEIGHT + LEVEL_GAP;
+        
+        // Calculate control points for the curved path
+        const midY = (sourceY + targetY) / 2;
+        
+        // Create path data for the curved connection
+        const pathData = `
+          M ${sourceX} ${sourceY}
+          C ${sourceX} ${midY},
+            ${targetX} ${midY},
+            ${targetX} ${targetY}
+        `;
+        
         links.push({
           source: node.id,
           target: child.id,
-          sourceX: x,
-          sourceY: y + NODE_HEIGHT / 2,
-          targetX: childX,
-          targetY: y + NODE_HEIGHT + LEVEL_GAP - NODE_HEIGHT / 2,
+          path: pathData,
           label: node.type === 'IF' && node.children.length > 1 ? 
             (i === 0 ? 'true' : 'false') : 
             undefined
@@ -151,24 +163,14 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
     svg.setAttribute('width', String(maxX - minX + 100));
     svg.setAttribute('height', String(maxY - minY + 100));
     
-    // Draw the links
+    // Draw the links first (so they appear behind nodes)
     links.forEach(link => {
       const linkGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       g.appendChild(linkGroup);
       
       // Draw the link
       const linkElement = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      const dx = link.targetX - link.sourceX;
-      const dy = link.targetY - link.sourceY;
-      const controlPoint1X = link.sourceX;
-      const controlPoint1Y = link.sourceY + dy / 2;
-      const controlPoint2X = link.targetX;
-      const controlPoint2Y = link.sourceY + dy / 2;
-      
-      linkElement.setAttribute(
-        'd', 
-        `M ${link.sourceX} ${link.sourceY} C ${controlPoint1X} ${controlPoint1Y}, ${controlPoint2X} ${controlPoint2Y}, ${link.targetX} ${link.targetY}`
-      );
+      linkElement.setAttribute('d', link.path);
       linkElement.setAttribute('stroke', '#666');
       linkElement.setAttribute('stroke-width', '2');
       linkElement.setAttribute('fill', 'none');
@@ -178,32 +180,36 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
       
       // Add a label if needed
       if (link.label) {
-        const midX = (link.sourceX + link.targetX) / 2;
-        const midY = link.sourceY + dy / 2;
-        
         const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        labelBg.setAttribute('x', String(midX - 15));
-        labelBg.setAttribute('y', String(midY - 10));
-        labelBg.setAttribute('width', '30');
+        const labelText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        
+        // Extract midpoint from the path for label positioning
+        const pathLength = linkElement.getTotalLength();
+        const midPoint = linkElement.getPointAtLength(pathLength / 2);
+        
+        labelBg.setAttribute('x', String(midPoint.x - 20));
+        labelBg.setAttribute('y', String(midPoint.y - 10));
+        labelBg.setAttribute('width', '40');
         labelBg.setAttribute('height', '20');
         labelBg.setAttribute('rx', '4');
         labelBg.setAttribute('fill', '#fff');
         labelBg.setAttribute('stroke', '#ddd');
-        linkGroup.appendChild(labelBg);
         
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('x', String(midX));
-        label.setAttribute('y', String(midY + 5));
-        label.setAttribute('text-anchor', 'middle');
-        label.setAttribute('font-size', '10px');
-        label.textContent = link.label;
-        linkGroup.appendChild(label);
+        labelText.setAttribute('x', String(midPoint.x));
+        labelText.setAttribute('y', String(midPoint.y + 5));
+        labelText.setAttribute('text-anchor', 'middle');
+        labelText.setAttribute('font-size', '12px');
+        labelText.textContent = link.label;
+        
+        linkGroup.appendChild(labelBg);
+        linkGroup.appendChild(labelText);
       }
     });
     
     // Draw the nodes
     nodes.forEach(node => {
       const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      nodeGroup.setAttribute('transform', `translate(${node.x - NODE_WIDTH / 2},${node.y})`);
       g.appendChild(nodeGroup);
       
       let nodeShape;
@@ -214,8 +220,8 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
         case 'ENTRY':
         case 'EXIT':
           nodeShape = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-          nodeShape.setAttribute('cx', String(node.x));
-          nodeShape.setAttribute('cy', String(node.y + NODE_HEIGHT / 2));
+          nodeShape.setAttribute('cx', String(NODE_WIDTH / 2));
+          nodeShape.setAttribute('cy', String(NODE_HEIGHT / 2));
           nodeShape.setAttribute('rx', String(NODE_WIDTH / 2));
           nodeShape.setAttribute('ry', String(NODE_HEIGHT / 2));
           fill = node.type === 'ENTRY' ? '#d1fae5' : '#fee2e2';
@@ -225,10 +231,10 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
         case 'IF':
           nodeShape = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
           const diamondPoints = [
-            [node.x, node.y],
-            [node.x + NODE_WIDTH / 2, node.y + NODE_HEIGHT / 2],
-            [node.x, node.y + NODE_HEIGHT],
-            [node.x - NODE_WIDTH / 2, node.y + NODE_HEIGHT / 2]
+            [NODE_WIDTH / 2, 0],
+            [NODE_WIDTH, NODE_HEIGHT / 2],
+            [NODE_WIDTH / 2, NODE_HEIGHT],
+            [0, NODE_HEIGHT / 2]
           ];
           nodeShape.setAttribute('points', diamondPoints.map(p => p.join(',')).join(' '));
           fill = '#fef3c7';
@@ -238,8 +244,6 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
         case 'WHILE':
         case 'FOR':
           nodeShape = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-          nodeShape.setAttribute('x', String(node.x - NODE_WIDTH / 2));
-          nodeShape.setAttribute('y', String(node.y));
           nodeShape.setAttribute('width', String(NODE_WIDTH));
           nodeShape.setAttribute('height', String(NODE_HEIGHT));
           nodeShape.setAttribute('rx', '20');
@@ -250,8 +254,6 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
           
         default:
           nodeShape = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-          nodeShape.setAttribute('x', String(node.x - NODE_WIDTH / 2));
-          nodeShape.setAttribute('y', String(node.y));
           nodeShape.setAttribute('width', String(NODE_WIDTH));
           nodeShape.setAttribute('height', String(NODE_HEIGHT));
           nodeShape.setAttribute('rx', '4');
@@ -265,27 +267,40 @@ const ControlFlowVisualization: React.FC<ControlFlowVisualizationProps> = ({
       nodeShape.setAttribute('stroke-width', '2');
       nodeGroup.appendChild(nodeShape);
       
-      // Add text for the node
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', String(node.x));
-      text.setAttribute('y', String(node.y + NODE_HEIGHT / 2));
-      text.setAttribute('text-anchor', 'middle');
-      text.setAttribute('dominant-baseline', 'middle');
-      text.setAttribute('font-size', '12px');
-      text.textContent = node.type;
-      nodeGroup.appendChild(text);
+      // Create a foreignObject for HTML content
+      const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+      foreignObject.setAttribute('width', String(NODE_WIDTH));
+      foreignObject.setAttribute('height', String(NODE_HEIGHT));
       
-      // Add the condition for IF nodes
-      if (node.type === 'IF' && node.condition) {
-        const conditionText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        conditionText.setAttribute('x', String(node.x));
-        conditionText.setAttribute('y', String(node.y + NODE_HEIGHT / 2 + 15));
-        conditionText.setAttribute('text-anchor', 'middle');
-        conditionText.setAttribute('dominant-baseline', 'middle');
-        conditionText.setAttribute('font-size', '10px');
-        conditionText.textContent = node.condition;
-        nodeGroup.appendChild(conditionText);
+      const div = document.createElement('div');
+      div.style.width = '100%';
+      div.style.height = '100%';
+      div.style.display = 'flex';
+      div.style.flexDirection = 'column';
+      div.style.alignItems = 'center';
+      div.style.justifyContent = 'center';
+      div.style.padding = '8px';
+      div.style.boxSizing = 'border-box';
+      div.style.overflow = 'hidden';
+      
+      const typeSpan = document.createElement('span');
+      typeSpan.style.fontSize = '14px';
+      typeSpan.style.fontWeight = 'bold';
+      typeSpan.textContent = node.type;
+      div.appendChild(typeSpan);
+      
+      if (node.condition) {
+        const conditionSpan = document.createElement('span');
+        conditionSpan.style.fontSize = '12px';
+        conditionSpan.style.marginTop = '4px';
+        conditionSpan.style.textAlign = 'center';
+        conditionSpan.style.wordBreak = 'break-word';
+        conditionSpan.textContent = node.condition;
+        div.appendChild(conditionSpan);
       }
+      
+      foreignObject.appendChild(div);
+      nodeGroup.appendChild(foreignObject);
     });
   };
   
