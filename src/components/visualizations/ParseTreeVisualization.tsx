@@ -11,31 +11,52 @@ const ParseTreeVisualization: React.FC<ParseTreeVisualizationProps> = ({ parseTr
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [selectedNode, setSelectedNode] = useState<ParseTreeNode | null>(null);
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['root']));
+  const [isFullScreen, setIsFullScreen] = useState(false);
   
   useEffect(() => {
     if (!parseTree || !svgRef.current) return;
     renderTree(layoutTree(parseTree));
-  }, [parseTree, transform]);
+  }, [parseTree, transform, expandedNodes]);
+
+  const toggleNode = (nodeId: string) => {
+    setExpandedNodes(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  };
   
   const layoutTree = (node: ParseTreeNode) => {
-    const NODE_WIDTH = 120;
-    const NODE_HEIGHT = 30;
+    const NODE_WIDTH = 160;
+    const NODE_HEIGHT = 40;
     const LEVEL_HEIGHT = 80;
+    const NODE_SPACING = 5;
     const nodes: any[] = [];
     const links: any[] = [];
     
-    const processNode = (n: ParseTreeNode, x = 0, y = 0, level = 0) => {
+    const processNode = (n: ParseTreeNode, x = 0, y = 0, level = 0): number => {
+      const isExpanded = expandedNodes.has(n.id);
+      
       nodes.push({
         id: n.id,
         label: n.type,
         value: n.value,
         x,
-        y: y + level * LEVEL_HEIGHT,
+        y: y + level * (LEVEL_HEIGHT + NODE_SPACING),
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
+        isExpanded,
+        hasChildren: n.children.length > 0
       });
       
-      if (!n.children || n.children.length === 0) return NODE_WIDTH;
+      if (!isExpanded || !n.children || n.children.length === 0) {
+        return NODE_WIDTH + NODE_SPACING;
+      }
       
       const childrenWidth = n.children.reduce((total, child) => {
         return total + processNode(child, 0, y, level + 1);
@@ -50,17 +71,17 @@ const ParseTreeVisualization: React.FC<ParseTreeVisualizationProps> = ({ parseTr
           source: n.id,
           target: child.id,
           sourceX: x,
-          sourceY: y + level * LEVEL_HEIGHT + NODE_HEIGHT,
+          sourceY: y + level * (LEVEL_HEIGHT + NODE_SPACING) + NODE_HEIGHT,
           targetX: currentX,
-          targetY: y + (level + 1) * LEVEL_HEIGHT,
+          targetY: y + (level + 1) * (LEVEL_HEIGHT + NODE_SPACING)
         });
-        currentX += childWidth;
+        currentX += childWidth + NODE_SPACING;
       });
       
-      return Math.max(NODE_WIDTH, childrenWidth);
+      return Math.max(NODE_WIDTH + NODE_SPACING, childrenWidth);
     };
     
-    processNode(node);
+    processNode({ ...node, id: 'root' });
     return { nodes, links };
   };
   
@@ -98,7 +119,7 @@ const ParseTreeVisualization: React.FC<ParseTreeVisualizationProps> = ({ parseTr
       rect.setAttribute('width', String(node.width));
       rect.setAttribute('height', String(node.height));
       rect.setAttribute('rx', '4');
-      rect.setAttribute('fill', '#e0f2fe');
+      rect.setAttribute('fill', node.isExpanded ? '#e0f2fe' : '#f0f9ff');
       rect.setAttribute('stroke', '#0284c7');
       rect.setAttribute('stroke-width', '1.5');
       group.appendChild(rect);
@@ -113,8 +134,26 @@ const ParseTreeVisualization: React.FC<ParseTreeVisualizationProps> = ({ parseTr
       text.textContent = node.label;
       group.appendChild(text);
       
+      if (node.hasChildren) {
+        const expandIcon = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const iconSize = 16;
+        const iconX = node.width - iconSize - 4;
+        const iconY = (node.height - iconSize) / 2;
+        
+        expandIcon.setAttribute('d', node.isExpanded 
+          ? 'M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z'
+          : 'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z'
+        );
+        expandIcon.setAttribute('transform', `translate(${iconX},${iconY})`);
+        expandIcon.setAttribute('fill', '#0284c7');
+        group.appendChild(expandIcon);
+      }
+      
       group.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (node.hasChildren) {
+          toggleNode(node.id);
+        }
         setSelectedNode(node);
       });
       
@@ -124,7 +163,7 @@ const ParseTreeVisualization: React.FC<ParseTreeVisualizationProps> = ({ parseTr
       });
       
       group.addEventListener('mouseout', () => {
-        rect.setAttribute('fill', '#e0f2fe');
+        rect.setAttribute('fill', node.isExpanded ? '#e0f2fe' : '#f0f9ff');
         rect.setAttribute('stroke-width', '1.5');
       });
     });
@@ -163,12 +202,6 @@ const ParseTreeVisualization: React.FC<ParseTreeVisualizationProps> = ({ parseTr
   const handleWheel = (e: React.WheelEvent<SVGSVGElement>) => {
     e.preventDefault();
     
-    const point = svgRef.current?.createSVGPoint();
-    if (!point) return;
-    
-    point.x = e.clientX;
-    point.y = e.clientY;
-    
     const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
     const newScale = Math.min(Math.max(0.1, transform.scale * scaleFactor), 3);
     
@@ -176,6 +209,34 @@ const ParseTreeVisualization: React.FC<ParseTreeVisualizationProps> = ({ parseTr
       ...prev,
       scale: newScale
     }));
+  };
+
+  const toggleFullScreen = () => {
+    setIsFullScreen(!isFullScreen);
+    if (!isFullScreen) {
+      const newWindow = window.open('', '_blank', 'width=800,height=600');
+      if (newWindow) {
+        newWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Parse Tree Visualization</title>
+              <style>
+                body { margin: 0; overflow: hidden; }
+                #container { width: 100vw; height: 100vh; }
+              </style>
+            </head>
+            <body>
+              <div id="container"></div>
+            </body>
+          </html>
+        `);
+        const container = newWindow.document.getElementById('container');
+        if (container && svgRef.current) {
+          container.appendChild(svgRef.current.cloneNode(true));
+        }
+      }
+    }
   };
   
   if (!parseTree) {
@@ -189,16 +250,30 @@ const ParseTreeVisualization: React.FC<ParseTreeVisualizationProps> = ({ parseTr
   return (
     <div className="h-full flex flex-col">
       <div className="bg-gray-50 p-2 border-b flex justify-between items-center text-sm">
-        <div>
+        <div className="flex gap-2">
           <button 
             onClick={() => setTransform({ x: 0, y: 0, scale: 1 })}
             className="px-2 py-1 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
           >
             Reset View
           </button>
+          <button
+            onClick={() => setExpandedNodes(new Set(['root']))}
+            className="px-2 py-1 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Collapse All
+          </button>
         </div>
-        <div className="text-gray-500">
-          Drag to pan • Scroll to zoom
+        <div className="flex items-center gap-4">
+          <span className="text-gray-500">
+            Click nodes to expand/collapse • Drag to pan • Scroll to zoom
+          </span>
+          <button
+            onClick={toggleFullScreen}
+            className="px-2 py-1 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          >
+            Open in New Window
+          </button>
         </div>
       </div>
       
